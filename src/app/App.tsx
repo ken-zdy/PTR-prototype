@@ -1678,13 +1678,37 @@ function GeneratorDoneDialog({
           </p>
         ) : genTab === "单PTR生成" ? (
           <p style={{ ...fontBase, fontWeight: 300, fontSize: 16, lineHeight: "24px", color: T.fg, margin: 0 }}>
-            {"PTR文档已生成，可以下载。"}
+            {"生成 "}
+            <span style={{ ...fontBase, fontWeight: 700, fontSize: 18, lineHeight: "26px", color: T.primary }}>12</span>
+            {" 条对比项，其中有 "}
+            <span style={{ ...fontBase, fontWeight: 700, fontSize: 18, lineHeight: "26px", color: "#D60012" }}>3</span>
+            {" 处需要重点关注 "}
+            <span style={{ color: "#D60012" }}>1.1、2.1、2.3</span>
+            {"。"}
           </p>
         ) : (
           <p style={{ ...fontBase, fontWeight: 300, fontSize: 16, lineHeight: "24px", color: T.fg, margin: 0 }}>
-            {"批量生成 "}
-            <span style={{ ...fontBase, fontWeight: 700, fontSize: 18, lineHeight: "26px", color: T.primary }}>8</span>
-            {" 条PTR文档，已全部完成。"}
+            {"生成 "}
+            <span style={{ ...fontBase, fontWeight: 700, fontSize: 18, lineHeight: "26px", color: T.primary }}>12</span>
+            {" 个PTR对比表，其中"}
+            <br />
+            {"3M12 有 "}
+            <span style={{ ...fontBase, fontWeight: 700, fontSize: 18, lineHeight: "26px", color: "#D60012" }}>3</span>
+            {" 处需要重点关注 "}
+            <span style={{ color: "#D60012" }}>1.1、2.1、2.3</span>
+            {"。"}
+            <br />
+            {"7M12 有 "}
+            <span style={{ ...fontBase, fontWeight: 700, fontSize: 18, lineHeight: "26px", color: "#D60012" }}>2</span>
+            {" 处需要重点关注 "}
+            <span style={{ color: "#D60012" }}>1.1、2.1</span>
+            {"。"}
+            <br />
+            {"5M12 有 "}
+            <span style={{ ...fontBase, fontWeight: 700, fontSize: 18, lineHeight: "26px", color: "#D60012" }}>2</span>
+            {" 处需要重点关注 "}
+            <span style={{ color: "#D60012" }}>1.1、2.1</span>
+            {"。"}
           </p>
         )}
         <p style={{ ...fontBase, fontSize: 12, lineHeight: "18px", color: T.fgMuted, fontStyle: "italic", margin: 0 }}>
