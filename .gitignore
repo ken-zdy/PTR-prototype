@@ -1,0 +1,17 @@
+# dependencies
+node_modules/
+
+# secrets
+.env
+.env.*
+!.env.example
+
+# figma api output
+figma-node.json
+
+# build
+dist/
+*.zip
+
+# macOS
+.DS_Store
