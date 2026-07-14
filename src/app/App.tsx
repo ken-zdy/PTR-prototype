@@ -80,6 +80,9 @@ const T = {
   pill: "#F7F7F7",          // action pill bg
 };
 
+const ACCESS_PASSWORD = (import.meta.env.VITE_ACCESS_PASSWORD as string | undefined)?.trim() || "ptr2026";
+const ACCESS_STORAGE_KEY = "ptr-prototype-access-ok";
+
 // ─── Icon SVG wrappers using the imported path data ──────────────────────────
 
 const SvgIcon = ({
@@ -167,7 +170,7 @@ const ICalendar = () =>
 // ─── Global Top Bar ───────────────────────────────────────────────────────────
 // Matches: Left() + Right() inside the "Top bar" at the very top of PtrList
 
-function GlobalTopBar() {
+function GlobalTopBar({ onLogout }: { onLogout: () => void }) {
   return (
     <div
       className="flex items-center justify-between shrink-0"
@@ -197,6 +200,23 @@ function GlobalTopBar() {
       <div className="flex items-center gap-2">
         {/* date-icons area: empty in design */}
         <div style={{ width: 381, height: 40 }} />
+        <button
+          onClick={onLogout}
+          style={{
+            background: "transparent",
+            border: `1px solid ${T.border}`,
+            borderRadius: 999,
+            padding: "6px 12px",
+            cursor: "pointer",
+            fontFamily: "'Neue Frutiger One', Inter, sans-serif",
+            fontWeight: 700,
+            fontSize: 13,
+            lineHeight: "20px",
+            color: T.fgMuted,
+          }}
+        >
+          退出登录
+        </button>
         {/* Menu button */}
         <button
           className="flex items-center gap-2"
@@ -3025,6 +3045,16 @@ function Backdrop({ children, onBgClick }: { children: React.ReactNode; onBgClic
 // ─── Main App ──────────────────────────────────────────────────────────────────
 
 export default function App() {
+  const [accessGranted, setAccessGranted] = useState(() => {
+    try {
+      return window.localStorage.getItem(ACCESS_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [passwordInput, setPasswordInput] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+
   const [screen, setScreen] = useState<Screen>("list");
   const [rows, setRows] = useState<PtrRow[]>(INITIAL_ROWS);
   const [progress, setProgress] = useState(0);
@@ -3264,6 +3294,155 @@ export default function App() {
 
   const displayRows = rows;
 
+  const handlePasswordSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (passwordInput.trim() === ACCESS_PASSWORD) {
+      setAccessGranted(true);
+      setPasswordError("");
+      setPasswordInput("");
+      try {
+        window.localStorage.setItem(ACCESS_STORAGE_KEY, "1");
+      } catch {
+        // Ignore storage errors to avoid blocking access.
+      }
+      return;
+    }
+    setPasswordError("密码错误，请重试。");
+  };
+
+  const handleLogout = () => {
+    try {
+      window.localStorage.removeItem(ACCESS_STORAGE_KEY);
+    } catch {
+      // Ignore storage errors to keep logout responsive.
+    }
+    setAccessGranted(false);
+    setPasswordInput("");
+    setPasswordError("");
+  };
+
+  if (!accessGranted) {
+    return (
+      <div
+        style={{
+          width: "100vw",
+          height: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "linear-gradient(140deg, #f1f6fb 0%, #e8f0f9 100%)",
+          padding: 16,
+        }}
+      >
+        <div
+          style={{
+            width: "100%",
+            maxWidth: 420,
+            background: "#fff",
+            border: `1px solid ${T.border}`,
+            borderRadius: 16,
+            boxShadow: "0 16px 48px rgba(21,25,30,0.12)",
+            padding: 24,
+          }}
+        >
+          <p
+            style={{
+              margin: 0,
+              fontFamily: "'Neue Frutiger One', Inter, sans-serif",
+              fontWeight: 700,
+              fontSize: 24,
+              lineHeight: "30px",
+              color: T.fg,
+            }}
+          >
+            PTR 管理访问验证
+          </p>
+          <p
+            style={{
+              margin: "8px 0 20px",
+              fontFamily: "'Neue Frutiger One', Inter, sans-serif",
+              fontWeight: 300,
+              fontSize: 15,
+              lineHeight: "22px",
+              color: T.fgMuted,
+            }}
+          >
+            请输入访问密码以继续。
+          </p>
+
+          <form onSubmit={handlePasswordSubmit}>
+            <label
+              style={{
+                display: "block",
+                marginBottom: 8,
+                fontFamily: "'Neue Frutiger One', Inter, sans-serif",
+                fontWeight: 700,
+                fontSize: 14,
+                color: T.fg,
+              }}
+            >
+              访问密码
+            </label>
+            <input
+              type="password"
+              value={passwordInput}
+              onChange={(e) => {
+                setPasswordInput(e.target.value);
+                if (passwordError) setPasswordError("");
+              }}
+              placeholder="请输入密码"
+              autoFocus
+              style={{
+                width: "100%",
+                height: 44,
+                borderRadius: 10,
+                border: `1px solid ${passwordError ? T.red : T.border}`,
+                padding: "0 12px",
+                fontFamily: "'Neue Frutiger One', Inter, sans-serif",
+                fontSize: 15,
+                color: T.fg,
+                outline: "none",
+              }}
+            />
+            {passwordError && (
+              <p
+                style={{
+                  margin: "8px 0 0",
+                  fontFamily: "'Neue Frutiger One', Inter, sans-serif",
+                  fontWeight: 400,
+                  fontSize: 13,
+                  lineHeight: "20px",
+                  color: T.red,
+                }}
+              >
+                {passwordError}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              style={{
+                marginTop: 16,
+                width: "100%",
+                height: 44,
+                borderRadius: 999,
+                border: "none",
+                background: T.primary,
+                color: "#fff",
+                cursor: "pointer",
+                fontFamily: "'Neue Frutiger One', Inter, sans-serif",
+                fontWeight: 700,
+                fontSize: 16,
+              }}
+            >
+              进入系统
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -3276,7 +3455,7 @@ export default function App() {
       }}
     >
       {/* ── Global Top Bar ── */}
-      <GlobalTopBar />
+      <GlobalTopBar onLogout={handleLogout} />
 
       {/* ── Below top bar ── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
