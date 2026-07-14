@@ -1465,7 +1465,7 @@ function GeneratorFormDialog({
                   exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.18 }}
                   style={{ overflow: "hidden" }}
                 >
-                  <div style={{ background: T.bg, borderRadius: 6, border: `1px solid ${T.border}`, padding: "8px 12px", display: "flex", flexDirection: "column", gap: 0 }}>
+                  <div style={{ background: T.bg, borderRadius: 6, border: `1px solid ${T.border}`, padding: "8px 12px", display: "flex", flexDirection: "column", gap: 0, maxHeight: 420, overflowY: "auto" }}>
                     {/* File info row */}
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
