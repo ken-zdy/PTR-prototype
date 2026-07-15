@@ -1,6 +1,6 @@
 /* MARKER-MAKE-KIT-INVOKED */
 /* MARKER-MAKE-KIT-DISCOVERY-READ */
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import svgPaths from "@/imports/Group1000004620-1/svg-k2wt844vdx";
 import svgPaths2 from "@/imports/Frame1000004818/svg-0qhrkrwoc8";
@@ -53,6 +53,26 @@ interface ConfirmForm {
   expireDate: string;
 }
 
+interface CommentAuthor {
+  name: string;
+  role: string;
+}
+
+interface CommentMessage {
+  id: string;
+  text: string;
+  createdAt: string;
+  author: CommentAuthor;
+}
+
+interface CommentNote {
+  id: string;
+  x: number;
+  y: number;
+  resolved: boolean;
+  messages: CommentMessage[];
+}
+
 // ─── Initial Data ─────────────────────────────────────────────────────────────
 
 const INITIAL_ROWS: PtrRow[] = [
@@ -82,6 +102,8 @@ const T = {
 
 const ACCESS_PASSWORD = (import.meta.env.VITE_ACCESS_PASSWORD as string | undefined)?.trim() || "ptr2026";
 const ACCESS_STORAGE_KEY = "ptr-prototype-access-ok";
+const COMMENTS_STORAGE_KEY = "ptr-prototype-comments-v1";
+const COMMENTS_USER_STORAGE_KEY = "ptr-prototype-comments-user-v1";
 
 // ─── Icon SVG wrappers using the imported path data ──────────────────────────
 
@@ -3066,6 +3088,879 @@ function Backdrop({ children, onBgClick }: { children: React.ReactNode; onBgClic
   );
 }
 
+// ─── Global Comment Layer ────────────────────────────────────────────────────
+
+function GlobalCommentLayer() {
+  const [commentMode, setCommentMode] = useState(false);
+  const [commentUser, setCommentUser] = useState<CommentAuthor>(() => {
+    try {
+      const raw = window.localStorage.getItem(COMMENTS_USER_STORAGE_KEY);
+      if (!raw) return { name: "当前用户", role: "" };
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return { name: "当前用户", role: "" };
+      return {
+        name: typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim() : "当前用户",
+        role: typeof parsed.role === "string" ? parsed.role.trim() : "",
+      };
+    } catch {
+      return { name: "当前用户", role: "" };
+    }
+  });
+  const [isUserEditorOpen, setIsUserEditorOpen] = useState(false);
+  const [userNameInput, setUserNameInput] = useState("");
+  const [userRoleInput, setUserRoleInput] = useState("");
+  const [notes, setNotes] = useState<CommentNote[]>(() => {
+    try {
+      const raw = window.localStorage.getItem(COMMENTS_STORAGE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      const normalized = parsed.map((item) => {
+        if (!item || typeof item !== "object") return null;
+
+        const id = typeof item.id === "string" ? item.id : null;
+        const x = typeof item.x === "number" ? item.x : null;
+        const y = typeof item.y === "number" ? item.y : null;
+        if (!id || x === null || y === null) return null;
+
+        // Backward compatibility: migrate old { text, createdAt } format to threaded messages.
+        if (Array.isArray(item.messages)) {
+          const messages = item.messages
+            .map((msg) => {
+              if (!msg || typeof msg !== "object") return null;
+              if (typeof msg.id !== "string" || typeof msg.text !== "string" || typeof msg.createdAt !== "string") return null;
+              const author = (() => {
+                if (msg.author && typeof msg.author === "object" && typeof msg.author.name === "string") {
+                  return {
+                    name: msg.author.name.trim() || "当前用户",
+                    role: typeof msg.author.role === "string" ? msg.author.role : "",
+                  } satisfies CommentAuthor;
+                }
+                if (typeof msg.author === "string") {
+                  return { name: msg.author.trim() || "当前用户", role: "" } satisfies CommentAuthor;
+                }
+                return { name: "当前用户", role: "" } satisfies CommentAuthor;
+              })();
+              return {
+                id: msg.id,
+                text: msg.text,
+                createdAt: msg.createdAt,
+                author,
+              } satisfies CommentMessage;
+            })
+            .filter((msg): msg is CommentMessage => Boolean(msg));
+          if (!messages.length) return null;
+          return {
+            id,
+            x,
+            y,
+            resolved: Boolean(item.resolved),
+            messages,
+          } satisfies CommentNote;
+        }
+
+        if (typeof item.text === "string" && typeof item.createdAt === "string") {
+          return {
+            id,
+            x,
+            y,
+            resolved: false,
+            messages: [{
+              id: `${id}-m0`,
+              text: item.text,
+              createdAt: item.createdAt,
+              author: { name: "当前用户", role: "" },
+            }],
+          } satisfies CommentNote;
+        }
+
+        return null;
+      });
+      return normalized.filter((item): item is CommentNote => Boolean(item));
+    } catch {
+      return [];
+    }
+  });
+  const [draftPos, setDraftPos] = useState<{ x: number; y: number } | null>(null);
+  const [draftText, setDraftText] = useState("");
+  const [replyText, setReplyText] = useState("");
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"all" | "open" | "resolved">("all");
+  const dragStateRef = useRef<{ id: string; startX: number; startY: number; moved: boolean } | null>(null);
+  const suppressClickRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(COMMENTS_STORAGE_KEY, JSON.stringify(notes));
+    } catch {
+      // Ignore storage errors for prototype behavior.
+    }
+  }, [notes]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(COMMENTS_USER_STORAGE_KEY, JSON.stringify(commentUser));
+    } catch {
+      // Ignore storage errors for prototype behavior.
+    }
+  }, [commentUser]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setCommentMode(false);
+      setDraftPos(null);
+      setDraftText("");
+      setReplyText("");
+      setActiveId(null);
+      setIsUserEditorOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isTyping = !!target && (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      );
+      if (isTyping) return;
+      if (e.key.toLowerCase() !== "c" || e.metaKey || e.ctrlKey || e.altKey) return;
+      e.preventDefault();
+      setCommentMode(v => !v);
+      setDraftPos(null);
+      setDraftText("");
+      setReplyText("");
+      setActiveId(null);
+      setIsUserEditorOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      const drag = dragStateRef.current;
+      if (!drag) return;
+
+      const dx = e.clientX - drag.startX;
+      const dy = e.clientY - drag.startY;
+      if (!drag.moved && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) {
+        drag.moved = true;
+      }
+      if (!drag.moved) return;
+
+      setNotes(prev => prev.map(note => {
+        if (note.id !== drag.id) return note;
+        return {
+          ...note,
+          x: Math.max(13, Math.min(note.x + dx, window.innerWidth - 13)),
+          y: Math.max(13, Math.min(note.y + dy, window.innerHeight - 13)),
+        };
+      }));
+
+      drag.startX = e.clientX;
+      drag.startY = e.clientY;
+    };
+
+    const onMouseUp = () => {
+      const drag = dragStateRef.current;
+      if (!drag) return;
+      if (drag.moved) {
+        suppressClickRef.current = drag.id;
+        window.setTimeout(() => {
+          if (suppressClickRef.current === drag.id) suppressClickRef.current = null;
+        }, 0);
+      }
+      dragStateRef.current = null;
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
+  const activeNote = activeId ? notes.find(n => n.id === activeId) ?? null : null;
+  const openCount = notes.filter(note => !note.resolved).length;
+  const resolvedCount = notes.length - openCount;
+  const visibleNotes = notes.filter(note => {
+    if (filter === "open") return !note.resolved;
+    if (filter === "resolved") return note.resolved;
+    return true;
+  });
+  const openNotes = notes.filter(note => !note.resolved);
+
+  const formatTimestamp = (ts: string) => {
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return ts;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  const calcPanelPos = (x: number, y: number) => {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const panelW = 320;
+    const panelH = 420;
+    return {
+      left: Math.max(16, Math.min(x + 14, vw - panelW - 16)),
+      top: Math.max(70, Math.min(y + 14, vh - panelH - 16)),
+    };
+  };
+
+  const getInitials = (name: string) => {
+    const clean = name.trim();
+    if (!clean) return "我";
+    const parts = clean.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return `${parts[0].slice(0, 1)}${parts[1].slice(0, 1)}`.toUpperCase();
+    return clean.slice(0, 2).toUpperCase();
+  };
+
+  const openDraftAt = (x: number, y: number) => {
+    setDraftPos({ x, y });
+    setDraftText("");
+    setReplyText("");
+    setActiveId(null);
+  };
+
+  const submitDraft = () => {
+    if (!draftPos) return;
+    const text = draftText.trim();
+    if (!text) return;
+    const now = new Date().toISOString();
+    const newNote: CommentNote = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      x: draftPos.x,
+      y: draftPos.y,
+      resolved: false,
+      messages: [{
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        text,
+        createdAt: now,
+        author: commentUser,
+      }],
+    };
+    setNotes(prev => [...prev, newNote]);
+    setDraftPos(null);
+    setDraftText("");
+    setReplyText("");
+    setActiveId(newNote.id);
+    setCommentMode(false);
+  };
+
+  const submitReply = () => {
+    const text = replyText.trim();
+    if (!activeId || !text) return;
+    const message: CommentMessage = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      text,
+      createdAt: new Date().toISOString(),
+      author: commentUser,
+    };
+    setNotes(prev => prev.map(note => (
+      note.id === activeId
+        ? { ...note, resolved: false, messages: [...note.messages, message] }
+        : note
+    )));
+    setReplyText("");
+  };
+
+  const deleteNote = (id: string) => {
+    setNotes(prev => prev.filter(note => note.id !== id));
+    if (activeId === id) setActiveId(null);
+  };
+
+  const toggleResolved = (id: string) => {
+    setNotes(prev => prev.map(note => (
+      note.id === id ? { ...note, resolved: !note.resolved } : note
+    )));
+  };
+
+  const startDragPin = (id: string, e: React.MouseEvent<HTMLButtonElement>) => {
+    dragStateRef.current = {
+      id,
+      startX: e.clientX,
+      startY: e.clientY,
+      moved: false,
+    };
+  };
+
+  const focusNextOpenNote = () => {
+    if (!openNotes.length) return;
+    const currentIdx = openNotes.findIndex(note => note.id === activeId);
+    const nextIdx = currentIdx >= 0 ? (currentIdx + 1) % openNotes.length : 0;
+    setActiveId(openNotes[nextIdx].id);
+    setCommentMode(false);
+    setDraftPos(null);
+    setDraftText("");
+    setReplyText("");
+  };
+
+  const closeAllDrafts = () => {
+    setCommentMode(false);
+    setDraftPos(null);
+    setDraftText("");
+    setReplyText("");
+    setIsUserEditorOpen(false);
+  };
+
+  const openUserEditor = () => {
+    setUserNameInput(commentUser.name);
+    setUserRoleInput(commentUser.role);
+    setIsUserEditorOpen(true);
+  };
+
+  const saveUserInfo = () => {
+    setCommentUser({
+      name: userNameInput.trim() || "当前用户",
+      role: userRoleInput.trim(),
+    });
+    setIsUserEditorOpen(false);
+  };
+
+  return (
+    <>
+      <div
+        style={{
+          position: "fixed",
+          right: 20,
+          bottom: 20,
+          zIndex: 130,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <div
+          style={{
+            borderRadius: 999,
+            padding: "7px 10px",
+            background: "rgba(255,255,255,0.9)",
+            border: `1px solid ${T.border}`,
+            color: T.fgMuted,
+            fontFamily: "Inter, sans-serif",
+            fontWeight: 600,
+            fontSize: 12,
+            lineHeight: "16px",
+          }}
+        >
+          快捷键 C
+        </div>
+        <button
+          onClick={openUserEditor}
+          style={{
+            border: `1px solid ${T.border}`,
+            borderRadius: 999,
+            padding: "8px 12px",
+            background: "#fff",
+            color: T.fg,
+            cursor: "pointer",
+            fontFamily: "Inter, sans-serif",
+            fontWeight: 600,
+            fontSize: 12,
+            lineHeight: "16px",
+            maxWidth: 180,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+          title={`留言人：${commentUser.name}${commentUser.role ? ` (${commentUser.role})` : ""}`}
+        >
+          留言人：{commentUser.name}
+        </button>
+        <button
+          onClick={() => {
+            setCommentMode(v => !v);
+            setDraftPos(null);
+            setDraftText("");
+            setReplyText("");
+            setActiveId(null);
+            setIsUserEditorOpen(false);
+          }}
+          style={{
+            border: "none",
+            borderRadius: 999,
+            padding: "10px 16px",
+            cursor: "pointer",
+            background: commentMode ? "#003D75" : T.primary,
+            color: "#fff",
+            fontFamily: "'Neue Frutiger One', Inter, sans-serif",
+            fontWeight: 700,
+            fontSize: 14,
+            lineHeight: "20px",
+            boxShadow: "0 10px 24px rgba(0, 114, 219, 0.28)",
+          }}
+        >
+          {commentMode ? "退出留言模式" : "留言模式"}
+        </button>
+        <div
+          style={{
+            borderRadius: 999,
+            padding: "8px 12px",
+            background: "rgba(21,25,30,0.78)",
+            color: "#fff",
+            fontFamily: "Inter, sans-serif",
+            fontWeight: 600,
+            fontSize: 12,
+            lineHeight: "16px",
+          }}
+        >
+          {openCount} 未解决 / {resolvedCount} 已解决
+        </div>
+        <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: 999, overflow: "hidden", background: "#fff" }}>
+          {[
+            { key: "all", label: "全部" },
+            { key: "open", label: "未解决" },
+            { key: "resolved", label: "已解决" },
+          ].map((opt) => {
+            const active = filter === opt.key;
+            return (
+              <button
+                key={opt.key}
+                onClick={() => {
+                  setFilter(opt.key as "all" | "open" | "resolved");
+                  setDraftPos(null);
+                  setDraftText("");
+                  setReplyText("");
+                  if (activeId && !notes.find(n => n.id === activeId && (opt.key === "all" || (opt.key === "open" ? !n.resolved : n.resolved)))) {
+                    setActiveId(null);
+                  }
+                }}
+                style={{
+                  border: "none",
+                  borderRight: opt.key === "resolved" ? "none" : `1px solid ${T.border}`,
+                  padding: "8px 10px",
+                  background: active ? "rgba(0,114,219,0.12)" : "#fff",
+                  color: active ? T.primary : T.fgMuted,
+                  cursor: "pointer",
+                  fontFamily: "Inter, sans-serif",
+                  fontWeight: 700,
+                  fontSize: 12,
+                  lineHeight: "16px",
+                }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        <button
+          onClick={focusNextOpenNote}
+          disabled={!openNotes.length}
+          style={{
+            border: "none",
+            borderRadius: 999,
+            padding: "8px 12px",
+            background: openNotes.length ? "rgba(0,114,219,0.12)" : "rgba(86,102,118,0.14)",
+            color: openNotes.length ? T.primary : T.fgMuted,
+            cursor: openNotes.length ? "pointer" : "not-allowed",
+            fontFamily: "'Neue Frutiger One', Inter, sans-serif",
+            fontWeight: 700,
+            fontSize: 12,
+            lineHeight: "16px",
+          }}
+        >
+          下一条未解决
+        </button>
+      </div>
+
+      {(draftPos || activeId) && !commentMode && (
+        <div
+          onClick={() => {
+            setDraftPos(null);
+            setDraftText("");
+            setReplyText("");
+            setActiveId(null);
+            setIsUserEditorOpen(false);
+          }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 125,
+            background: "transparent",
+          }}
+        />
+      )}
+
+      {commentMode && (
+        <div
+          onClick={(e) => openDraftAt(e.clientX, e.clientY)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 120,
+            cursor: "crosshair",
+            background: "rgba(0, 114, 219, 0.05)",
+          }}
+        />
+      )}
+
+      {isUserEditorOpen && (
+        <div
+          style={{
+            position: "fixed",
+            right: 20,
+            bottom: 72,
+            zIndex: 132,
+            width: 300,
+            borderRadius: 12,
+            background: "#fff",
+            border: `1px solid ${T.border}`,
+            boxShadow: "0 14px 28px rgba(21,25,30,0.18)",
+            overflow: "hidden",
+          }}
+        >
+          <div style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}` }}>
+            <p style={{ margin: 0, fontFamily: "'Neue Frutiger One', Inter, sans-serif", fontWeight: 700, fontSize: 15, lineHeight: "22px", color: T.fg }}>
+              设置留言人
+            </p>
+          </div>
+          <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+            <input
+              value={userNameInput}
+              onChange={(e) => setUserNameInput(e.target.value)}
+              placeholder="姓名"
+              style={{ height: 36, borderRadius: 8, border: `1px solid ${T.border}`, padding: "0 10px", fontFamily: "Inter, sans-serif", fontSize: 13, color: T.fg, outline: "none" }}
+            />
+            <input
+              value={userRoleInput}
+              onChange={(e) => setUserRoleInput(e.target.value)}
+              placeholder="角色/部门（可选）"
+              style={{ height: 36, borderRadius: 8, border: `1px solid ${T.border}`, padding: "0 10px", fontFamily: "Inter, sans-serif", fontSize: 13, color: T.fg, outline: "none" }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
+              <button
+                onClick={() => setIsUserEditorOpen(false)}
+                style={{ border: `1px solid ${T.border}`, borderRadius: 999, padding: "6px 14px", background: "#fff", color: T.fg, cursor: "pointer", fontFamily: "'Neue Frutiger One', Inter, sans-serif", fontWeight: 700, fontSize: 13 }}
+              >
+                取消
+              </button>
+              <button
+                onClick={saveUserInfo}
+                style={{ border: "none", borderRadius: 999, padding: "6px 14px", background: T.primary, color: "#fff", cursor: "pointer", fontFamily: "'Neue Frutiger One', Inter, sans-serif", fontWeight: 700, fontSize: 13 }}
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {visibleNotes.map((note, index) => (
+        <button
+          key={note.id}
+          onMouseDown={(e) => startDragPin(note.id, e)}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (suppressClickRef.current === note.id) {
+              suppressClickRef.current = null;
+              return;
+            }
+            setActiveId(note.id);
+            setDraftPos(null);
+            setCommentMode(false);
+            setReplyText("");
+          }}
+          title={note.messages[note.messages.length - 1]?.text ?? "留言"}
+          style={{
+            position: "fixed",
+            left: note.x,
+            top: note.y,
+            transform: "translate(-50%, -50%)",
+            zIndex: 126,
+            width: 26,
+            height: 26,
+            borderRadius: 999,
+            border: `2px solid ${activeId === note.id ? "#003D75" : "#fff"}`,
+            background: note.resolved ? "#0C8F50" : (activeId === note.id ? "#003D75" : T.primary),
+            boxShadow: "0 6px 14px rgba(21,25,30,0.32)",
+            color: "#fff",
+            fontFamily: "Inter, sans-serif",
+            fontWeight: 700,
+            fontSize: 11,
+            lineHeight: "22px",
+            cursor: "pointer",
+            padding: 0,
+          }}
+        >
+          {index + 1}
+        </button>
+      ))}
+
+      {draftPos && (() => {
+        const pos = calcPanelPos(draftPos.x, draftPos.y);
+        return (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "fixed",
+              left: pos.left,
+              top: pos.top,
+              zIndex: 128,
+              width: 320,
+              borderRadius: 12,
+              background: "#fff",
+              border: `1px solid ${T.border}`,
+              boxShadow: "0 14px 28px rgba(21,25,30,0.18)",
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}` }}>
+              <p style={{ margin: 0, fontFamily: "'Neue Frutiger One', Inter, sans-serif", fontWeight: 700, fontSize: 15, lineHeight: "22px", color: T.fg }}>
+                新建留言
+              </p>
+              <p style={{ margin: "2px 0 0", fontFamily: "Inter, sans-serif", fontWeight: 400, fontSize: 12, lineHeight: "18px", color: T.fgMuted }}>
+                可在此位置记录需要修改或确认的信息
+              </p>
+            </div>
+            <div style={{ padding: 14 }}>
+              <textarea
+                autoFocus
+                value={draftText}
+                onChange={e => setDraftText(e.target.value)}
+                placeholder="输入留言..."
+                style={{
+                  width: "100%",
+                  minHeight: 96,
+                  resize: "vertical",
+                  borderRadius: 8,
+                  border: `1px solid ${T.border}`,
+                  padding: "10px 12px",
+                  fontFamily: "Inter, sans-serif",
+                  fontSize: 14,
+                  lineHeight: "20px",
+                  color: T.fg,
+                  outline: "none",
+                }}
+              />
+              <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button
+                  onClick={() => {
+                    closeAllDrafts();
+                  }}
+                  style={{
+                    border: `1px solid ${T.border}`,
+                    borderRadius: 999,
+                    padding: "6px 14px",
+                    background: "#fff",
+                    color: T.fg,
+                    cursor: "pointer",
+                    fontFamily: "'Neue Frutiger One', Inter, sans-serif",
+                    fontWeight: 700,
+                    fontSize: 14,
+                  }}
+                >
+                  取消
+                </button>
+                <button
+                  onClick={submitDraft}
+                  style={{
+                    border: "none",
+                    borderRadius: 999,
+                    padding: "6px 14px",
+                    background: T.primary,
+                    color: "#fff",
+                    cursor: "pointer",
+                    fontFamily: "'Neue Frutiger One', Inter, sans-serif",
+                    fontWeight: 700,
+                    fontSize: 14,
+                    opacity: draftText.trim() ? 1 : 0.5,
+                  }}
+                >
+                  发布留言
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {activeNote && (() => {
+        const pos = calcPanelPos(activeNote.x, activeNote.y);
+        return (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "fixed",
+              left: pos.left,
+              top: pos.top,
+              zIndex: 128,
+              width: 320,
+              borderRadius: 12,
+              background: "#fff",
+              border: `1px solid ${T.border}`,
+              boxShadow: "0 14px 28px rgba(21,25,30,0.18)",
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <p style={{ margin: 0, fontFamily: "'Neue Frutiger One', Inter, sans-serif", fontWeight: 700, fontSize: 15, lineHeight: "22px", color: T.fg }}>
+                  留言线程
+                </p>
+                <span
+                  style={{
+                    borderRadius: 999,
+                    padding: "2px 8px",
+                    background: activeNote.resolved ? "rgba(0,122,51,0.12)" : "rgba(0,114,219,0.12)",
+                    color: activeNote.resolved ? T.green : T.primary,
+                    fontFamily: "Inter, sans-serif",
+                    fontWeight: 700,
+                    fontSize: 11,
+                    lineHeight: "16px",
+                  }}
+                >
+                  {activeNote.resolved ? "已解决" : "未解决"}
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <button
+                  onClick={() => toggleResolved(activeNote.id)}
+                  style={{
+                    border: "none",
+                    borderRadius: 999,
+                    padding: "5px 10px",
+                    background: activeNote.resolved ? "rgba(0,114,219,0.12)" : "rgba(0,122,51,0.12)",
+                    color: activeNote.resolved ? T.primary : T.green,
+                    cursor: "pointer",
+                    fontFamily: "'Neue Frutiger One', Inter, sans-serif",
+                    fontWeight: 700,
+                    fontSize: 12,
+                    lineHeight: "16px",
+                  }}
+                >
+                  {activeNote.resolved ? "重新打开" : "标记解决"}
+                </button>
+                <button
+                  onClick={() => setActiveId(null)}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: T.fgMuted,
+                    cursor: "pointer",
+                    fontFamily: "Inter, sans-serif",
+                    fontSize: 18,
+                    lineHeight: "18px",
+                    padding: 0,
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+            <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ maxHeight: 186, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+                {activeNote.messages.map((msg, idx) => (
+                  <div key={msg.id} style={{ border: `1px solid ${T.border}`, borderRadius: 8, background: idx === 0 ? "rgba(0,114,219,0.04)" : "#fff", padding: "8px 10px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <div
+                        style={{
+                          width: 22,
+                          height: 22,
+                          borderRadius: 999,
+                          background: "rgba(0,114,219,0.14)",
+                          color: T.primary,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontFamily: "Inter, sans-serif",
+                          fontWeight: 700,
+                          fontSize: 10,
+                          lineHeight: "12px",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {getInitials(msg.author.name)}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <p style={{ margin: 0, fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 12, lineHeight: "16px", color: T.fg, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {msg.author.name}
+                        </p>
+                        {msg.author.role && (
+                          <p style={{ margin: 0, fontFamily: "Inter, sans-serif", fontWeight: 500, fontSize: 10, lineHeight: "14px", color: T.fgMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {msg.author.role}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <p style={{ margin: 0, whiteSpace: "pre-wrap", fontFamily: "Inter, sans-serif", fontWeight: 400, fontSize: 13, lineHeight: "20px", color: T.fg }}>
+                      {msg.text}
+                    </p>
+                    <p style={{ margin: "4px 0 0", fontFamily: "Inter, sans-serif", fontWeight: 500, fontSize: 11, lineHeight: "16px", color: T.fgMuted }}>
+                      {formatTimestamp(msg.createdAt)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <textarea
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                placeholder={activeNote.resolved ? "该线程已解决，回复将自动重新打开" : "输入回复..."}
+                style={{
+                  width: "100%",
+                  minHeight: 76,
+                  resize: "vertical",
+                  borderRadius: 8,
+                  border: `1px solid ${T.border}`,
+                  padding: "8px 10px",
+                  fontFamily: "Inter, sans-serif",
+                  fontSize: 13,
+                  lineHeight: "19px",
+                  color: T.fg,
+                  outline: "none",
+                }}
+              />
+
+              <div style={{ marginTop: 2, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <button
+                  onClick={() => deleteNote(activeNote.id)}
+                  style={{
+                    border: "none",
+                    borderRadius: 999,
+                    padding: "6px 14px",
+                    background: "rgba(194,65,0,0.08)",
+                    color: T.red,
+                    cursor: "pointer",
+                    fontFamily: "'Neue Frutiger One', Inter, sans-serif",
+                    fontWeight: 700,
+                    fontSize: 14,
+                  }}
+                >
+                  删除线程
+                </button>
+                <button
+                  onClick={submitReply}
+                  style={{
+                    border: "none",
+                    borderRadius: 999,
+                    padding: "6px 14px",
+                    background: T.primary,
+                    color: "#fff",
+                    cursor: "pointer",
+                    fontFamily: "'Neue Frutiger One', Inter, sans-serif",
+                    fontWeight: 700,
+                    fontSize: 14,
+                    opacity: replyText.trim() ? 1 : 0.5,
+                  }}
+                >
+                  发送回复
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+    </>
+  );
+}
+
 // ─── Main App ──────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -3850,6 +4745,9 @@ export default function App() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* ── Global comments layer ── */}
+      <GlobalCommentLayer />
     </div>
   );
 }
