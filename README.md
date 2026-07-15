@@ -24,5 +24,7 @@
   - Default release flow uses patch bump (small version): `pnpm release:patch`.
   - This updates `package.json` version and rebuilds.
   - The UI footer version follows package version automatically.
+  - To keep local and remote versions in sync in one step, run `pnpm release:sync`.
+  - `release:sync` performs: clean-check -> pull/rebase from `origin/main` -> patch bump -> build -> commit -> push.
   - If major/minor bump is needed, decide manually before release.
   

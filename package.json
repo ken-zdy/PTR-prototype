@@ -9,7 +9,8 @@
     "dev:api": "node server/comments-server.mjs",
     "dev:all": "concurrently -n API,WEB -c cyan,green \"pnpm dev:api\" \"pnpm dev\"",
     "version:patch": "pnpm version patch --no-git-tag-version",
-    "release:patch": "pnpm version:patch && pnpm build"
+    "release:patch": "pnpm version:patch && pnpm build",
+    "release:sync": "node scripts/release-sync.mjs"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
