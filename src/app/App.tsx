@@ -67,6 +67,7 @@ interface CommentMessage {
 
 interface CommentNote {
   id: string;
+  scope: string;
   x: number;
   y: number;
   resolved: boolean;
@@ -3090,7 +3091,7 @@ function Backdrop({ children, onBgClick }: { children: React.ReactNode; onBgClic
 
 // ─── Global Comment Layer ────────────────────────────────────────────────────
 
-function GlobalCommentLayer() {
+function GlobalCommentLayer({ scope }: { scope: string }) {
   const [commentMode, setCommentMode] = useState(false);
   const [commentUser, setCommentUser] = useState<CommentAuthor>(() => {
     try {
@@ -3119,6 +3120,7 @@ function GlobalCommentLayer() {
         if (!item || typeof item !== "object") return null;
 
         const id = typeof item.id === "string" ? item.id : null;
+        const itemScope = typeof item.scope === "string" && item.scope.trim() ? item.scope : "main";
         const x = typeof item.x === "number" ? item.x : null;
         const y = typeof item.y === "number" ? item.y : null;
         if (!id || x === null || y === null) return null;
@@ -3152,6 +3154,7 @@ function GlobalCommentLayer() {
           if (!messages.length) return null;
           return {
             id,
+            scope: itemScope,
             x,
             y,
             resolved: Boolean(item.resolved),
@@ -3162,6 +3165,7 @@ function GlobalCommentLayer() {
         if (typeof item.text === "string" && typeof item.createdAt === "string") {
           return {
             id,
+            scope: itemScope,
             x,
             y,
             resolved: false,
@@ -3254,7 +3258,7 @@ function GlobalCommentLayer() {
       if (!drag.moved) return;
 
       setNotes(prev => prev.map(note => {
-        if (note.id !== drag.id) return note;
+        if (note.id !== drag.id || note.scope !== scope) return note;
         return {
           ...note,
           x: Math.max(13, Math.min(note.x + dx, window.innerWidth - 13)),
@@ -3286,15 +3290,25 @@ function GlobalCommentLayer() {
     };
   }, []);
 
-  const activeNote = activeId ? notes.find(n => n.id === activeId) ?? null : null;
-  const openCount = notes.filter(note => !note.resolved).length;
-  const resolvedCount = notes.length - openCount;
-  const visibleNotes = notes.filter(note => {
+  useEffect(() => {
+    setCommentMode(false);
+    setDraftPos(null);
+    setDraftText("");
+    setReplyText("");
+    setActiveId(null);
+    setIsUserEditorOpen(false);
+  }, [scope]);
+
+  const scopedNotes = notes.filter(note => note.scope === scope);
+  const activeNote = activeId ? scopedNotes.find(n => n.id === activeId) ?? null : null;
+  const openCount = scopedNotes.filter(note => !note.resolved).length;
+  const resolvedCount = scopedNotes.length - openCount;
+  const visibleNotes = scopedNotes.filter(note => {
     if (filter === "open") return !note.resolved;
     if (filter === "resolved") return note.resolved;
     return true;
   });
-  const openNotes = notes.filter(note => !note.resolved);
+  const openNotes = scopedNotes.filter(note => !note.resolved);
 
   const formatTimestamp = (ts: string) => {
     const d = new Date(ts);
@@ -3336,6 +3350,7 @@ function GlobalCommentLayer() {
     const now = new Date().toISOString();
     const newNote: CommentNote = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      scope,
       x: draftPos.x,
       y: draftPos.y,
       resolved: false,
@@ -3528,7 +3543,7 @@ function GlobalCommentLayer() {
                   setDraftPos(null);
                   setDraftText("");
                   setReplyText("");
-                  if (activeId && !notes.find(n => n.id === activeId && (opt.key === "all" || (opt.key === "open" ? !n.resolved : n.resolved)))) {
+                  if (activeId && !scopedNotes.find(n => n.id === activeId && (opt.key === "all" || (opt.key === "open" ? !n.resolved : n.resolved)))) {
                     setActiveId(null);
                   }
                 }}
@@ -4211,6 +4226,8 @@ export default function App() {
     screen === "doc-maintain" || screen === "doc-delete-confirm" ||
     screen === "merge";
 
+  const commentScope = isDialogOpen ? `dialog:${screen}` : "main";
+
   const displayRows = rows;
 
   const handlePasswordSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -4747,7 +4764,7 @@ export default function App() {
       </div>
 
       {/* ── Global comments layer ── */}
-      <GlobalCommentLayer />
+      <GlobalCommentLayer scope={commentScope} />
     </div>
   );
 }
