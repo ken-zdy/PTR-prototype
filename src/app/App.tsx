@@ -107,6 +107,7 @@ const COMMENTS_STORAGE_KEY = "ptr-prototype-comments-v1";
 const COMMENTS_USER_STORAGE_KEY = "ptr-prototype-comments-user-v1";
 const COMMENTS_API_URL = (import.meta.env.VITE_COMMENTS_API_URL as string | undefined)?.trim()
   || `${window.location.protocol}//${window.location.hostname}:8787/api/comments`;
+const APP_VERSION = (import.meta.env.VITE_APP_VERSION as string | undefined)?.trim() || "v0.2.1";
 
 function normalizeCommentNotes(parsed: unknown): CommentNote[] {
   if (!Array.isArray(parsed)) return [];
@@ -3168,7 +3169,7 @@ function Backdrop({ children, onBgClick }: { children: React.ReactNode; onBgClic
 
 // ─── Global Comment Layer ────────────────────────────────────────────────────
 
-function GlobalCommentLayer({ scope }: { scope: string }) {
+function GlobalCommentLayer({ scope, onJumpToScope }: { scope: string; onJumpToScope: (scope: string) => void }) {
   const [commentMode, setCommentMode] = useState(false);
   const [commentUser, setCommentUser] = useState<CommentAuthor>(() => {
     try {
@@ -3406,7 +3407,10 @@ function GlobalCommentLayer({ scope }: { scope: string }) {
     setDraftPos(null);
     setDraftText("");
     setReplyText("");
-    setActiveId(null);
+    setActiveId(prev => {
+      if (!prev) return null;
+      return notesRef.current.some(note => note.id === prev && note.scope === scope) ? prev : null;
+    });
     setIsUserEditorOpen(false);
   }, [scope]);
 
@@ -3414,12 +3418,15 @@ function GlobalCommentLayer({ scope }: { scope: string }) {
   const activeNote = activeId ? scopedNotes.find(n => n.id === activeId) ?? null : null;
   const openCount = scopedNotes.filter(note => !note.resolved).length;
   const resolvedCount = scopedNotes.length - openCount;
+  const totalOpenCount = notes.filter(note => !note.resolved).length;
+  const totalResolvedCount = notes.length - totalOpenCount;
   const visibleNotes = scopedNotes.filter(note => {
     if (filter === "open") return !note.resolved;
     if (filter === "resolved") return note.resolved;
     return true;
   });
   const openNotes = scopedNotes.filter(note => !note.resolved);
+  const allOpenNotes = notes.filter(note => !note.resolved);
 
   const formatTimestamp = (ts: string) => {
     const d = new Date(ts);
@@ -3518,10 +3525,12 @@ function GlobalCommentLayer({ scope }: { scope: string }) {
   };
 
   const focusNextOpenNote = () => {
-    if (!openNotes.length) return;
-    const currentIdx = openNotes.findIndex(note => note.id === activeId);
-    const nextIdx = currentIdx >= 0 ? (currentIdx + 1) % openNotes.length : 0;
-    setActiveId(openNotes[nextIdx].id);
+    if (!allOpenNotes.length) return;
+    const currentIdx = allOpenNotes.findIndex(note => note.id === activeId);
+    const nextIdx = currentIdx >= 0 ? (currentIdx + 1) % allOpenNotes.length : 0;
+    const nextNote = allOpenNotes[nextIdx];
+    setActiveId(nextNote.id);
+    onJumpToScope(nextNote.scope);
     setCommentMode(false);
     setDraftPos(null);
     setDraftText("");
@@ -3637,7 +3646,7 @@ function GlobalCommentLayer({ scope }: { scope: string }) {
             lineHeight: "16px",
           }}
         >
-          {openCount} 未解决 / {resolvedCount} 已解决
+          {totalOpenCount} 未解决 / {totalResolvedCount} 已解决
         </div>
         {!isRemoteReady && (
           <div
@@ -3695,14 +3704,14 @@ function GlobalCommentLayer({ scope }: { scope: string }) {
         </div>
         <button
           onClick={focusNextOpenNote}
-          disabled={!openNotes.length}
+          disabled={!allOpenNotes.length}
           style={{
             border: "none",
             borderRadius: 999,
             padding: "8px 12px",
-            background: openNotes.length ? "rgba(0,114,219,0.12)" : "rgba(86,102,118,0.14)",
-            color: openNotes.length ? T.primary : T.fgMuted,
-            cursor: openNotes.length ? "pointer" : "not-allowed",
+            background: allOpenNotes.length ? "rgba(0,114,219,0.12)" : "rgba(86,102,118,0.14)",
+            color: allOpenNotes.length ? T.primary : T.fgMuted,
+            cursor: allOpenNotes.length ? "pointer" : "not-allowed",
             fontFamily: "'Neue Frutiger One', Inter, sans-serif",
             fontWeight: 700,
             fontSize: 12,
@@ -4356,6 +4365,17 @@ export default function App() {
 
   const commentScope = isDialogOpen ? `dialog:${screen}` : "main";
 
+  const jumpToCommentScope = (targetScope: string) => {
+    if (targetScope === "main") {
+      setScreen("list");
+      return;
+    }
+
+    if (!targetScope.startsWith("dialog:")) return;
+    const target = targetScope.slice("dialog:".length) as Screen;
+    setScreen(target);
+  };
+
   const displayRows = rows;
 
   const handlePasswordSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -4891,8 +4911,27 @@ export default function App() {
         </AnimatePresence>
       </div>
 
+      {/* ── subtle version label ── */}
+      <div
+        style={{
+          position: "fixed",
+          left: 14,
+          bottom: 10,
+          zIndex: 15,
+          pointerEvents: "none",
+          fontFamily: "Inter, sans-serif",
+          fontSize: 11,
+          lineHeight: "14px",
+          color: "rgba(86,102,118,0.55)",
+          letterSpacing: "0.02em",
+          userSelect: "none",
+        }}
+      >
+        {APP_VERSION}
+      </div>
+
       {/* ── Global comments layer ── */}
-      <GlobalCommentLayer scope={commentScope} />
+      <GlobalCommentLayer scope={commentScope} onJumpToScope={jumpToCommentScope} />
     </div>
   );
 }
