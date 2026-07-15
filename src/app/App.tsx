@@ -105,7 +105,8 @@ const ACCESS_PASSWORD = (import.meta.env.VITE_ACCESS_PASSWORD as string | undefi
 const ACCESS_STORAGE_KEY = "ptr-prototype-access-ok";
 const COMMENTS_STORAGE_KEY = "ptr-prototype-comments-v1";
 const COMMENTS_USER_STORAGE_KEY = "ptr-prototype-comments-user-v1";
-const COMMENTS_API_URL = (import.meta.env.VITE_COMMENTS_API_URL as string | undefined)?.trim() || "http://localhost:8787/api/comments";
+const COMMENTS_API_URL = (import.meta.env.VITE_COMMENTS_API_URL as string | undefined)?.trim()
+  || `${window.location.protocol}//${window.location.hostname}:8787/api/comments`;
 
 function normalizeCommentNotes(parsed: unknown): CommentNote[] {
   if (!Array.isArray(parsed)) return [];
