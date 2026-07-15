@@ -8,4 +8,14 @@
   Run `npm i` to install the dependencies.
 
   Run `npm run dev` to start the development server.
+
+  ## Shared comments (SQLite, no external DB)
+
+  The prototype now supports shared comments through a local SQLite API.
+
+  - Run `pnpm dev:api` to start the comments API service on `http://localhost:8787`.
+  - Run `pnpm dev` to start the frontend.
+  - Or run both together with `pnpm dev:all`.
+
+  Comment data is stored in `.local-data/comments.db`.
   

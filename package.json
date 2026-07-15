@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "dev": "vite"
+    "dev": "vite",
+    "dev:api": "node server/comments-server.mjs",
+    "dev:all": "concurrently -n API,WEB -c cyan,green \"pnpm dev:api\" \"pnpm dev\""
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
@@ -13,8 +15,10 @@
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cmdk": "1.1.1",
+    "cors": "^2.8.6",
     "date-fns": "3.6.0",
     "embla-carousel-react": "8.6.0",
+    "express": "^5.2.1",
     "input-otp": "1.4.2",
     "lucide-react": "0.487.0",
     "motion": "12.23.24",
@@ -37,6 +41,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "4.1.12",
     "@vitejs/plugin-react": "4.7.0",
+    "concurrently": "^10.0.3",
     "tailwindcss": "4.1.12",
     "vite": "6.3.5"
   },

@@ -105,6 +105,82 @@ const ACCESS_PASSWORD = (import.meta.env.VITE_ACCESS_PASSWORD as string | undefi
 const ACCESS_STORAGE_KEY = "ptr-prototype-access-ok";
 const COMMENTS_STORAGE_KEY = "ptr-prototype-comments-v1";
 const COMMENTS_USER_STORAGE_KEY = "ptr-prototype-comments-user-v1";
+const COMMENTS_API_URL = (import.meta.env.VITE_COMMENTS_API_URL as string | undefined)?.trim() || "http://localhost:8787/api/comments";
+
+function normalizeCommentNotes(parsed: unknown): CommentNote[] {
+  if (!Array.isArray(parsed)) return [];
+  const normalized = parsed.map((item) => {
+    if (!item || typeof item !== "object") return null;
+    const row = item as Record<string, unknown>;
+
+    const id = typeof row.id === "string" ? row.id : null;
+    const itemScope = typeof row.scope === "string" && row.scope.trim() ? row.scope : "main";
+    const x = typeof row.x === "number" ? row.x : null;
+    const y = typeof row.y === "number" ? row.y : null;
+    if (!id || x === null || y === null) return null;
+
+    if (Array.isArray(row.messages)) {
+      const messages = row.messages
+        .map((msg) => {
+          if (!msg || typeof msg !== "object") return null;
+          const raw = msg as Record<string, unknown>;
+          if (typeof raw.id !== "string" || typeof raw.text !== "string" || typeof raw.createdAt !== "string") return null;
+          const author = (() => {
+            if (raw.author && typeof raw.author === "object") {
+              const a = raw.author as Record<string, unknown>;
+              if (typeof a.name === "string") {
+                return {
+                  name: a.name.trim() || "当前用户",
+                  role: typeof a.role === "string" ? a.role : "",
+                } satisfies CommentAuthor;
+              }
+            }
+            if (typeof raw.author === "string") {
+              return { name: raw.author.trim() || "当前用户", role: "" } satisfies CommentAuthor;
+            }
+            return { name: "当前用户", role: "" } satisfies CommentAuthor;
+          })();
+          return {
+            id: raw.id,
+            text: raw.text,
+            createdAt: raw.createdAt,
+            author,
+          } satisfies CommentMessage;
+        })
+        .filter((msg): msg is CommentMessage => Boolean(msg));
+
+      if (!messages.length) return null;
+      return {
+        id,
+        scope: itemScope,
+        x,
+        y,
+        resolved: Boolean(row.resolved),
+        messages,
+      } satisfies CommentNote;
+    }
+
+    if (typeof row.text === "string" && typeof row.createdAt === "string") {
+      return {
+        id,
+        scope: itemScope,
+        x,
+        y,
+        resolved: false,
+        messages: [{
+          id: `${id}-m0`,
+          text: row.text,
+          createdAt: row.createdAt,
+          author: { name: "当前用户", role: "" },
+        }],
+      } satisfies CommentNote;
+    }
+
+    return null;
+  });
+
+  return normalized.filter((item): item is CommentNote => Boolean(item));
+}
 
 // ─── Icon SVG wrappers using the imported path data ──────────────────────────
 
@@ -3115,72 +3191,7 @@ function GlobalCommentLayer({ scope }: { scope: string }) {
       const raw = window.localStorage.getItem(COMMENTS_STORAGE_KEY);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [];
-      const normalized = parsed.map((item) => {
-        if (!item || typeof item !== "object") return null;
-
-        const id = typeof item.id === "string" ? item.id : null;
-        const itemScope = typeof item.scope === "string" && item.scope.trim() ? item.scope : "main";
-        const x = typeof item.x === "number" ? item.x : null;
-        const y = typeof item.y === "number" ? item.y : null;
-        if (!id || x === null || y === null) return null;
-
-        // Backward compatibility: migrate old { text, createdAt } format to threaded messages.
-        if (Array.isArray(item.messages)) {
-          const messages = item.messages
-            .map((msg) => {
-              if (!msg || typeof msg !== "object") return null;
-              if (typeof msg.id !== "string" || typeof msg.text !== "string" || typeof msg.createdAt !== "string") return null;
-              const author = (() => {
-                if (msg.author && typeof msg.author === "object" && typeof msg.author.name === "string") {
-                  return {
-                    name: msg.author.name.trim() || "当前用户",
-                    role: typeof msg.author.role === "string" ? msg.author.role : "",
-                  } satisfies CommentAuthor;
-                }
-                if (typeof msg.author === "string") {
-                  return { name: msg.author.trim() || "当前用户", role: "" } satisfies CommentAuthor;
-                }
-                return { name: "当前用户", role: "" } satisfies CommentAuthor;
-              })();
-              return {
-                id: msg.id,
-                text: msg.text,
-                createdAt: msg.createdAt,
-                author,
-              } satisfies CommentMessage;
-            })
-            .filter((msg): msg is CommentMessage => Boolean(msg));
-          if (!messages.length) return null;
-          return {
-            id,
-            scope: itemScope,
-            x,
-            y,
-            resolved: Boolean(item.resolved),
-            messages,
-          } satisfies CommentNote;
-        }
-
-        if (typeof item.text === "string" && typeof item.createdAt === "string") {
-          return {
-            id,
-            scope: itemScope,
-            x,
-            y,
-            resolved: false,
-            messages: [{
-              id: `${id}-m0`,
-              text: item.text,
-              createdAt: item.createdAt,
-              author: { name: "当前用户", role: "" },
-            }],
-          } satisfies CommentNote;
-        }
-
-        return null;
-      });
-      return normalized.filter((item): item is CommentNote => Boolean(item));
+      return normalizeCommentNotes(parsed);
     } catch {
       return [];
     }
@@ -3192,6 +3203,11 @@ function GlobalCommentLayer({ scope }: { scope: string }) {
   const [filter, setFilter] = useState<"all" | "open" | "resolved">("all");
   const dragStateRef = useRef<{ id: string; startX: number; startY: number; moved: boolean } | null>(null);
   const suppressClickRef = useRef<string | null>(null);
+  const isRemoteEnabled = true;
+  const [isRemoteReady, setIsRemoteReady] = useState(false);
+  const notesRef = useRef<CommentNote[]>(notes);
+  const initialNotesRef = useRef<CommentNote[]>(notes);
+  const lastSyncedSnapshotRef = useRef<string>(JSON.stringify(notes));
 
   useEffect(() => {
     try {
@@ -3208,6 +3224,100 @@ function GlobalCommentLayer({ scope }: { scope: string }) {
       // Ignore storage errors for prototype behavior.
     }
   }, [commentUser]);
+
+  useEffect(() => {
+    notesRef.current = notes;
+  }, [notes]);
+
+  useEffect(() => {
+    let active = true;
+
+    const bootstrap = async () => {
+      try {
+        const resp = await fetch(COMMENTS_API_URL, { method: "GET" });
+        if (!active) return;
+        if (!resp.ok) {
+          setIsRemoteReady(true);
+          return;
+        }
+
+        const data = await resp.json() as { payload?: unknown };
+        if (Array.isArray(data?.payload)) {
+          const incoming = normalizeCommentNotes(data.payload);
+          const incomingSerialized = JSON.stringify(incoming);
+          if (incoming.length) {
+            lastSyncedSnapshotRef.current = incomingSerialized;
+            setNotes(incoming);
+          } else {
+            const initialNotes = initialNotesRef.current;
+            await fetch(COMMENTS_API_URL, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ payload: initialNotes }),
+            });
+            lastSyncedSnapshotRef.current = JSON.stringify(initialNotes);
+          }
+        }
+      } catch {
+        // Keep local fallback when API is not reachable.
+      }
+      if (active) setIsRemoteReady(true);
+    };
+
+    bootstrap();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isRemoteReady) return;
+
+    const iv = window.setInterval(async () => {
+      try {
+        const resp = await fetch(COMMENTS_API_URL, { method: "GET" });
+        if (!resp.ok) return;
+        const data = await resp.json() as { payload?: unknown };
+        if (!Array.isArray(data?.payload)) return;
+
+        const incoming = normalizeCommentNotes(data.payload);
+        const incomingSerialized = JSON.stringify(incoming);
+        const currentSerialized = JSON.stringify(notesRef.current);
+        if (incomingSerialized !== currentSerialized) {
+          lastSyncedSnapshotRef.current = incomingSerialized;
+          setNotes(incoming);
+        }
+      } catch {
+        // Ignore temporary network errors.
+      }
+    }, 2000);
+
+    return () => window.clearInterval(iv);
+  }, [isRemoteReady]);
+
+  useEffect(() => {
+    if (!isRemoteReady) return;
+
+    const serialized = JSON.stringify(notes);
+    if (serialized === lastSyncedSnapshotRef.current) return;
+
+    const t = window.setTimeout(async () => {
+      try {
+        const resp = await fetch(COMMENTS_API_URL, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ payload: notes }),
+        });
+        if (resp.ok) {
+          lastSyncedSnapshotRef.current = serialized;
+        }
+      } catch {
+        // Keep local data and retry on next update.
+      }
+    }, 400);
+
+    return () => window.clearTimeout(t);
+  }, [notes, isRemoteReady]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -3528,6 +3638,23 @@ function GlobalCommentLayer({ scope }: { scope: string }) {
         >
           {openCount} 未解决 / {resolvedCount} 已解决
         </div>
+        {!isRemoteReady && (
+          <div
+            style={{
+              borderRadius: 999,
+              padding: "8px 12px",
+              background: "rgba(194,65,0,0.12)",
+              color: T.red,
+              fontFamily: "Inter, sans-serif",
+              fontWeight: 600,
+              fontSize: 12,
+              lineHeight: "16px",
+            }}
+            title="请启动本地留言服务：pnpm dev:api 或 pnpm dev:all"
+          >
+            等待留言服务连接
+          </div>
+        )}
         <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: 999, overflow: "hidden", background: "#fff" }}>
           {[
             { key: "all", label: "全部" },

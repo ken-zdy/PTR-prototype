@@ -13,5 +13,8 @@ figma-node.json
 dist/
 *.zip
 
+# local sqlite data
+.local-data/
+
 # macOS
 .DS_Store
