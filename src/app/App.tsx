@@ -8,6 +8,8 @@ import svgPaths3 from "@/imports/Ptr生成器/svg-2knaldn2tc";
 import svgPaths4 from "@/imports/更新文档与删除记录/svg-rmahfn6rf9";
 import svgPaths5 from "@/imports/Ptr管理详情/svg-w3vvo4b09i";
 
+declare const __APP_VERSION__: string;
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type 滤色 =
@@ -107,7 +109,7 @@ const COMMENTS_STORAGE_KEY = "ptr-prototype-comments-v1";
 const COMMENTS_USER_STORAGE_KEY = "ptr-prototype-comments-user-v1";
 const COMMENTS_API_URL = (import.meta.env.VITE_COMMENTS_API_URL as string | undefined)?.trim()
   || `${window.location.protocol}//${window.location.hostname}:8787/api/comments`;
-const APP_VERSION = (import.meta.env.VITE_APP_VERSION as string | undefined)?.trim() || "v0.2.1";
+const APP_VERSION = (import.meta.env.VITE_APP_VERSION as string | undefined)?.trim() || __APP_VERSION__;
 
 function normalizeCommentNotes(parsed: unknown): CommentNote[] {
   if (!Array.isArray(parsed)) return [];
@@ -4363,19 +4365,6 @@ export default function App() {
     screen === "doc-maintain" || screen === "doc-delete-confirm" ||
     screen === "merge";
 
-  const commentScope = isDialogOpen ? `dialog:${screen}` : "main";
-
-  const jumpToCommentScope = (targetScope: string) => {
-    if (targetScope === "main") {
-      setScreen("list");
-      return;
-    }
-
-    if (!targetScope.startsWith("dialog:")) return;
-    const target = targetScope.slice("dialog:".length) as Screen;
-    setScreen(target);
-  };
-
   const displayRows = rows;
 
   const handlePasswordSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -4929,9 +4918,6 @@ export default function App() {
       >
         {APP_VERSION}
       </div>
-
-      {/* ── Global comments layer ── */}
-      <GlobalCommentLayer scope={commentScope} onJumpToScope={jumpToCommentScope} />
     </div>
   );
 }

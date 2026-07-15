@@ -18,4 +18,11 @@
   - Or run both together with `pnpm dev:all`.
 
   Comment data is stored in `.local-data/comments.db`.
+
+  ## Versioning convention
+
+  - Default release flow uses patch bump (small version): `pnpm release:patch`.
+  - This updates `package.json` version and rebuilds.
+  - The UI footer version follows package version automatically.
+  - If major/minor bump is needed, decide manually before release.
   

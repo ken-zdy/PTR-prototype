@@ -1,13 +1,15 @@
 {
   "name": "@figma/my-make-file",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "scripts": {
     "build": "vite build",
     "dev": "vite",
     "dev:api": "node server/comments-server.mjs",
-    "dev:all": "concurrently -n API,WEB -c cyan,green \"pnpm dev:api\" \"pnpm dev\""
+    "dev:all": "concurrently -n API,WEB -c cyan,green \"pnpm dev:api\" \"pnpm dev\"",
+    "version:patch": "pnpm version patch --no-git-tag-version",
+    "release:patch": "pnpm version:patch && pnpm build"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

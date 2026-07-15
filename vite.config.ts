@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import path from 'path'
+import { readFileSync } from 'node:fs'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 
@@ -16,6 +17,11 @@ function figmaAssetResolver() {
   }
 }
 
+const pkg = JSON.parse(
+  readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8')
+) as { version?: string }
+const appVersion = pkg.version ? `v${pkg.version}` : 'v0.0.0'
+
 export default defineConfig({
   // 相对路径，便于部署到任意子路径或静态托管
   base: './',
@@ -31,6 +37,9 @@ export default defineConfig({
       // Alias @ to the src directory
       '@': path.resolve(__dirname, './src'),
     },
+  },
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
   },
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
