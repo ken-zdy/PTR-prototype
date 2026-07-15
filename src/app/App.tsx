@@ -4606,7 +4606,7 @@ export default function App() {
                   color: "#000",
                 }}
               >
-                管理产品 PTR 注册证书及其有效期信息
+                管理产品 PTR、注册证书及其有效期信息
               </p>
             </div>
 
