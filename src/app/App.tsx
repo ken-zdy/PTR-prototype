@@ -1,6 +1,6 @@
 /* MARKER-MAKE-KIT-INVOKED */
 /* MARKER-MAKE-KIT-DISCOVERY-READ */
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import svgPaths from "@/imports/Group1000004620-1/svg-k2wt844vdx";
 import svgPaths2 from "@/imports/Frame1000004818/svg-0qhrkrwoc8";
@@ -108,7 +108,7 @@ const ACCESS_STORAGE_KEY = "ptr-prototype-access-ok";
 const COMMENTS_STORAGE_KEY = "ptr-prototype-comments-v1";
 const COMMENTS_USER_STORAGE_KEY = "ptr-prototype-comments-user-v1";
 const COMMENTS_API_URL = (import.meta.env.VITE_COMMENTS_API_URL as string | undefined)?.trim()
-  || `${window.location.protocol}//${window.location.hostname}:8787/api/comments`;
+  || "/api/comments";
 const APP_VERSION = (import.meta.env.VITE_APP_VERSION as string | undefined)?.trim() || __APP_VERSION__;
 
 function normalizeCommentNotes(parsed: unknown): CommentNote[] {
@@ -233,9 +233,18 @@ const IDocLib = () =>
 // Regulation library icon
 const IRegLib = () =>
   <SvgIcon d={svgPaths.p345c7500} w={20} h={20} vw="19.5" vh="19.5001" color={T.fgMuted} />;
-// Edit row icon
-const IEdit = () =>
-  <SvgIcon d={svgPaths.p2fd85e80} w={20} h={20} vw="20.04" vh="20" />;
+// Edit icon (pen)
+const IEdit = ({ color = T.fg }: { color?: string }) => (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+    <path
+      d="M10.898 3.17L13.83 6.102M4.5 13.5L7.205 12.959C7.39 12.922 7.56 12.83 7.693 12.698L14.607 5.784C15.131 5.26 15.131 4.412 14.607 3.888L13.112 2.393C12.588 1.869 11.74 1.869 11.216 2.393L4.302 9.307C4.17 9.44 4.078 9.61 4.041 9.795L3.5 12.5C3.359 13.205 3.795 13.641 4.5 13.5Z"
+      stroke={color}
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
 // Archive row icon
 const IArchive = () =>
   <SvgIcon d={svgPaths.p2792ff80} w={20} h={17} vw="19.5" vh="16.5" color="black" />;
@@ -636,6 +645,32 @@ function ActionButtons({ onArchive, onUpdate, onDetail }: { onArchive?: () => vo
 
 function PtrDataGrid({ rows, onArchive, onUpdate, onDetail }: { rows: PtrRow[]; onArchive?: (row: PtrRow) => void; onUpdate?: (row: PtrRow) => void; onDetail?: (row: PtrRow) => void }) {
   const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(null);
+  const [isCompactScreen, setIsCompactScreen] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth < 1500 : false,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleResize = () => setIsCompactScreen(window.innerWidth < 1500);
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const hiddenColKeys = useMemo(() => (
+    isCompactScreen ? new Set(["updatedBy", "updatedAt"]) : new Set<string>()
+  ), [isCompactScreen]);
+
+  useEffect(() => {
+    if (sort && hiddenColKeys.has(sort.key)) {
+      setSort(null);
+    }
+  }, [sort, hiddenColKeys]);
+
+  const visibleCols = useMemo(
+    () => COLS.filter(col => !hiddenColKeys.has(col.key)),
+    [hiddenColKeys],
+  );
 
   const toggleSort = (key: string) =>
     setSort(prev => {
@@ -666,7 +701,7 @@ function PtrDataGrid({ rows, onArchive, onUpdate, onDetail }: { rows: PtrRow[]; 
     >
       {/* Header row */}
       <div className="flex" style={{ borderBottom: `1px solid ${T.border}` }}>
-        {COLS.map(col => (
+        {visibleCols.map(col => (
           <div
             key={col.key}
             style={{ flex: col.flex, minWidth: 0, border: "none" }}
@@ -698,7 +733,7 @@ function PtrDataGrid({ rows, onArchive, onUpdate, onDetail }: { rows: PtrRow[]; 
           className="flex"
           style={{ height: 80, borderBottom: `1px solid ${T.border}` }}
         >
-          {COLS.map(col => (
+          {visibleCols.map(col => (
             <div
               key={col.key}
               style={{
@@ -2055,41 +2090,6 @@ function ArchiveUploadDialog({
           </React.Fragment>
         ))}
 
-        {/* Tips section */}
-        <div style={{ paddingTop: 4 }}>
-          <p style={{ margin: 0, fontFamily: "'Neue Frutiger One', Inter, sans-serif", fontWeight: 700, fontSize: 16, lineHeight: "24px", color: T.fg }}>Tips</p>
-          <p style={{ margin: 0, fontFamily: "'Neue Frutiger One', Inter, sans-serif", fontSize: 16, lineHeight: "24px", color: T.fg }}>
-            {archiveType === "变更归档" ? (
-              <>
-                {"请上传产品的 "}
-                <strong>变更批件（PDF）</strong>
-                <span style={{ color: "#D60012" }}>*</span>
-                {"、"}
-                <strong>PTR对比表（PDF）</strong>
-                <span style={{ color: "#D60012" }}>*</span>
-                {"、"}
-                <strong>PTR对比表中文版（docx）</strong>
-                {"、"}
-                <strong>PTR对比表英文版（docx）</strong>
-                {"；"}
-              </>
-            ) : (
-              <>
-                {"请上传产品的 "}
-                <strong>注册证书（PDF）</strong>
-                <span style={{ color: "#D60012" }}>*</span>
-                {"、"}
-                <strong>延续归档PTR（PDF）</strong>
-                <span style={{ color: "#D60012" }}>*</span>
-                {"、"}
-                <strong>延续归档PTR中文版（Word）</strong>
-                {"、"}
-                <strong>延续归档PTR英文版（Word）</strong>
-                {"；"}
-              </>
-            )}
-          </p>
-        </div>
       </div>
 
       {/* Footer */}
@@ -2805,12 +2805,30 @@ function PtrDetailPanel({ row, onClose, onEdit, onDownload, onOpenDoc, onMerge }
         <span style={{ ...font, fontWeight: 700, fontSize: 18, lineHeight: "26px", color: "#0061C2" }}>
           Azurion {row.model}
         </span>
-        <button
-          onClick={onClose}
-          style={{ background: "transparent", border: "none", padding: 8, cursor: "pointer", display: "flex", alignItems: "center" }}
-        >
-          <IClose color={T.fgMuted} />
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+          <button
+            onClick={onEdit}
+            title="编辑PTR信息"
+            aria-label="编辑PTR信息"
+            style={{
+              background: "transparent",
+              border: "none",
+              padding: 8,
+              cursor: onEdit ? "pointer" : "default",
+              display: "flex",
+              alignItems: "center",
+              opacity: onEdit ? 1 : 0.5,
+            }}
+          >
+            <IEdit color={T.fgMuted} />
+          </button>
+          <button
+            onClick={onClose}
+            style={{ background: "transparent", border: "none", padding: 8, cursor: "pointer", display: "flex", alignItems: "center" }}
+          >
+            <IClose color={T.fgMuted} />
+          </button>
+        </div>
       </div>
 
       {/* Info fields */}
@@ -2825,24 +2843,6 @@ function PtrDetailPanel({ row, onClose, onEdit, onDownload, onOpenDoc, onMerge }
             </span>
           </div>
         ))}
-      </div>
-
-      {/* 编辑PTR信息 button */}
-      <div style={{ padding: "0 18px 16px", flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
-        <button
-          onClick={onEdit}
-          style={{
-            background: "transparent",
-            border: `2px solid ${T.fg}`,
-            borderRadius: 999,
-            padding: "8px 16px",
-            cursor: "pointer",
-          }}
-        >
-          <span style={{ ...font, fontWeight: 700, fontSize: 16, lineHeight: "24px", color: T.fg }}>
-            编辑PTR信息
-          </span>
-        </button>
       </div>
 
       {/* Divider */}
